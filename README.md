@@ -2,7 +2,7 @@
 
 A small **personal data warehouse** for [Baka-Manga Updates](https://www.mangaupdates.com/) reading lists: it syncs your lists through the official API, keeps a **dimension** table of series metadata, appends **facts** when chapter counts advance, exports **Parquet**, and mirrors everything to **Cloudflare R2**—with optional **Discord** alerts and a **GitHub Actions** schedule so the runner never overwrites R2 without a successful baseline download.
 
-[Fetch MangaUpdate Data](https://github.com/Fayiette/MangaUpdate/actions/workflows/mangaupdate-fetch.yml)
+[![Fetch MangaUpdate Data](https://github.com/Fayiette/MangaUpdate/actions/workflows/mangaupdate-fetch.yml/badge.svg?branch=main)](https://github.com/Fayiette/MangaUpdate/actions/workflows/mangaupdate-fetch.yml)
 
 ---
 
