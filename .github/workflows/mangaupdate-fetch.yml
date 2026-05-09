@@ -39,12 +39,12 @@ jobs:
         pip install --upgrade pip  # Ensures latest pip
         pip install -r requirements.txt  # Your deps
 
-    - name: Install system deps  # For spotipy/requests robustness
+    - name: Install system deps  # For /requests robustness
       run: |
         sudo apt-get update -y
         sudo apt-get install -y jq curl  # Optional: jq for JSON in logs
         
-    - name: Run Spotify fetch script
+    - name: Run Mangaupdate fetch script
       env:
         DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         DISCORD_USER_ID: ${{ secrets.DISCORD_USER_ID }}
