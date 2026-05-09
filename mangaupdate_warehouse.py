@@ -38,13 +38,27 @@ def env_str(key: str, default: str) -> str:
     return v if v else default
 
 
+def normalize_mangaupdates_api_base(url: str, fallback: str) -> str:
+    """
+    Ensure API base is usable with requests (scheme required).
+    If MANGAUPDATES_API_BASE_URL is set without http(s)://, https:// is prepended.
+    """
+    u = (url or "").strip().rstrip("/")
+    if not u:
+        u = fallback.strip().rstrip("/")
+    if not (u.startswith("http://") or u.startswith("https://")):
+        u = f"https://{u.lstrip('/')}"
+    return u.rstrip("/")
+
+
 # Built-in defaults are generic filenames only — set real paths via .env or CI variables.
 _DEFAULT_DIM_SERIES_CSV = "dim_series.csv"
 _DEFAULT_FACT_PROGRESS_CSV = "fact_progress.csv"
 _DEFAULT_DIM_SERIES_PARQUET = "dim_series.parquet"
 _DEFAULT_FACT_PROGRESS_PARQUET = "fact_progress.parquet"
 _DEFAULT_SERIES_API_SAMPLE_JSON = "api_sample.json"
-_DEFAULT_MANGAUPDATES_API_BASE = "/api.example.com/"
+# Public MangaUpdates API root (used when env is unset or only after normalization).
+_DEFAULT_MANGAUPDATES_API_BASE = "https://api.mangaupdates.com/v1"
 
 # Load environment variables
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
@@ -97,10 +111,11 @@ class MangaUpdatesDataWarehouse:
     """
 
     def __init__(self, username, password, require_r2_pull: bool = False):
-        # MangaUpdates API (see .env.example)
-        self.base_url = env_str(
-            "MANGAUPDATES_API_BASE_URL", _DEFAULT_MANGAUPDATES_API_BASE
-        ).rstrip("/")
+        # MangaUpdates API (see .env.example); must be a full URL with scheme for requests.
+        self.base_url = normalize_mangaupdates_api_base(
+            env_str("MANGAUPDATES_API_BASE_URL", _DEFAULT_MANGAUPDATES_API_BASE),
+            _DEFAULT_MANGAUPDATES_API_BASE,
+        )
         self.username = username
         self.password = password
         self.token = None
