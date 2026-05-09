@@ -38,27 +38,31 @@ def env_str(key: str, default: str) -> str:
     return v if v else default
 
 
-def normalize_mangaupdates_api_base(url: str, fallback: str) -> str:
+def require_env(name: str) -> str:
+    """Require a non-empty environment variable (from .env via load_dotenv, or CI env)."""
+    v = (os.getenv(name) or "").strip()
+    if not v:
+        raise ValueError(
+            f"Missing required environment variable {name!r}. "
+            "Set it in .env (local) or GitHub Actions environment/repo variables or secrets (CI). "
+            "See .env.example for required keys."
+        )
+    return v
+
+
+def normalize_mangaupdates_api_base(url: str) -> str:
     """
     Ensure API base is usable with requests (scheme required).
     If MANGAUPDATES_API_BASE_URL is set without http(s)://, https:// is prepended.
     """
-    u = (url or "").strip().rstrip("/")
-    if not u:
-        u = fallback.strip().rstrip("/")
+    u = url.strip().rstrip("/")
     if not (u.startswith("http://") or u.startswith("https://")):
         u = f"https://{u.lstrip('/')}"
     return u.rstrip("/")
 
 
-# Built-in defaults are generic filenames only — set real paths via .env or CI variables.
-_DEFAULT_DIM_SERIES_CSV = "dim_series.csv"
-_DEFAULT_FACT_PROGRESS_CSV = "fact_progress.csv"
-_DEFAULT_DIM_SERIES_PARQUET = "dim_series.parquet"
-_DEFAULT_FACT_PROGRESS_PARQUET = "fact_progress.parquet"
+# Optional default (only for --dump-sample output path).
 _DEFAULT_SERIES_API_SAMPLE_JSON = "api_sample.json"
-# Public MangaUpdates API root (used when env is unset or only after normalization).
-_DEFAULT_MANGAUPDATES_API_BASE = "https://api.mangaupdates.com/v1"
 
 # Load environment variables
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
@@ -111,10 +115,9 @@ class MangaUpdatesDataWarehouse:
     """
 
     def __init__(self, username, password, require_r2_pull: bool = False):
-        # MangaUpdates API (see .env.example); must be a full URL with scheme for requests.
+        # MangaUpdates API — required in env (.env or CI); no built-in default.
         self.base_url = normalize_mangaupdates_api_base(
-            env_str("MANGAUPDATES_API_BASE_URL", _DEFAULT_MANGAUPDATES_API_BASE),
-            _DEFAULT_MANGAUPDATES_API_BASE,
+            require_env("MANGAUPDATES_API_BASE_URL")
         )
         self.username = username
         self.password = password
@@ -122,22 +125,16 @@ class MangaUpdatesDataWarehouse:
         # If True, abort when R2 baseline CSVs are not both loaded (unless both keys missing = empty bucket bootstrap).
         self.require_r2_pull = require_r2_pull
 
-        # Local file paths (R2 object keys use the same basename — see pull_from_r2 / upload_files_to_r2)
-        self.dim_series_path = env_str(
-            "DIM_SERIES_CSV_PATH", _DEFAULT_DIM_SERIES_CSV
-        )
-        self.fact_progress_path = env_str(
-            "FACT_PROGRESS_CSV_PATH", _DEFAULT_FACT_PROGRESS_CSV
-        )
-        self.dim_series_parquet = env_str(
-            "DIM_SERIES_PARQUET_PATH", _DEFAULT_DIM_SERIES_PARQUET
-        )
-        self.fact_progress_parquet = env_str(
-            "FACT_PROGRESS_PARQUET_PATH", _DEFAULT_FACT_PROGRESS_PARQUET
-        )
+        # Local file paths — required in env (.env or CI); no built-in defaults.
+        self.dim_series_path = require_env("DIM_SERIES_CSV_PATH")
+        self.fact_progress_path = require_env("FACT_PROGRESS_CSV_PATH")
+        self.dim_series_parquet = require_env("DIM_SERIES_PARQUET_PATH")
+        self.fact_progress_parquet = require_env("FACT_PROGRESS_PARQUET_PATH")
         self.series_api_sample_path = env_str(
             "SERIES_API_SAMPLE_PATH", _DEFAULT_SERIES_API_SAMPLE_JSON
         )
+
+        self._log_effective_paths_if_ci()
 
         # Track hashes before/after
         self.hashes_before = {}
@@ -161,6 +158,37 @@ class MangaUpdatesDataWarehouse:
     def r2_object_key_for_local_path(local_path: str) -> str:
         """R2 object name in bucket root: basename of the configured local path."""
         return os.path.basename(os.path.normpath(local_path))
+
+    def r2_key_dim_series_csv(self) -> str:
+        """R2 object key for DIM CSV (override with R2_DIM_SERIES_OBJECT_KEY if local basename differs)."""
+        v = (os.getenv("R2_DIM_SERIES_OBJECT_KEY") or "").strip()
+        return v if v else self.r2_object_key_for_local_path(self.dim_series_path)
+
+    def r2_key_fact_progress_csv(self) -> str:
+        v = (os.getenv("R2_FACT_PROGRESS_OBJECT_KEY") or "").strip()
+        return v if v else self.r2_object_key_for_local_path(self.fact_progress_path)
+
+    def r2_key_dim_series_parquet(self) -> str:
+        v = (os.getenv("R2_DIM_SERIES_PARQUET_KEY") or "").strip()
+        return v if v else self.r2_object_key_for_local_path(self.dim_series_parquet)
+
+    def r2_key_fact_progress_parquet(self) -> str:
+        v = (os.getenv("R2_FACT_PROGRESS_PARQUET_KEY") or "").strip()
+        return v if v else self.r2_object_key_for_local_path(self.fact_progress_parquet)
+
+    def _log_effective_paths_if_ci(self) -> None:
+        """Help debug missing R2 objects when env vars are not wired through Actions."""
+        if os.environ.get("GITHUB_ACTIONS", "").lower() != "true":
+            return
+        print(
+            "\nℹ️ CI — effective paths (local file ↔ R2 object key)\n"
+            f"   DIM CSV:   {self.dim_series_path!r} ↔ {self.r2_key_dim_series_csv()!r}\n"
+            f"   FACT CSV:  {self.fact_progress_path!r} ↔ {self.r2_key_fact_progress_csv()!r}\n"
+            f"   DIM pq:    {self.dim_series_parquet!r} ↔ {self.r2_key_dim_series_parquet()!r}\n"
+            f"   FACT pq:   {self.fact_progress_parquet!r} ↔ {self.r2_key_fact_progress_parquet()!r}\n"
+            "   Set GitHub prod Variables/Secrets: *_CSV_PATH / *_PARQUET_PATH and/or "
+            "R2_*_OBJECT_KEY / R2_*_PARQUET_KEY to match keys already in your bucket.\n"
+        )
 
     def create_s3_client(self):
         """Create and return S3 client for R2"""
@@ -289,14 +317,8 @@ class MangaUpdatesDataWarehouse:
         print("\n=== Pulling from R2 ===\n")
 
         files_to_pull = [
-            (
-                self.r2_object_key_for_local_path(self.dim_series_path),
-                self.dim_series_path,
-            ),
-            (
-                self.r2_object_key_for_local_path(self.fact_progress_path),
-                self.fact_progress_path,
-            ),
+            (self.r2_key_dim_series_csv(), self.dim_series_path),
+            (self.r2_key_fact_progress_csv(), self.fact_progress_path),
         ]
 
         dim_status = "error"
@@ -790,22 +812,10 @@ class MangaUpdatesDataWarehouse:
         print("\n=== Uploading to R2 ===\n")
 
         files_to_upload = [
-            (
-                self.dim_series_path,
-                self.r2_object_key_for_local_path(self.dim_series_path),
-            ),
-            (
-                self.fact_progress_path,
-                self.r2_object_key_for_local_path(self.fact_progress_path),
-            ),
-            (
-                self.dim_series_parquet,
-                self.r2_object_key_for_local_path(self.dim_series_parquet),
-            ),
-            (
-                self.fact_progress_parquet,
-                self.r2_object_key_for_local_path(self.fact_progress_parquet),
-            ),
+            (self.dim_series_path, self.r2_key_dim_series_csv()),
+            (self.fact_progress_path, self.r2_key_fact_progress_csv()),
+            (self.dim_series_parquet, self.r2_key_dim_series_parquet()),
+            (self.fact_progress_parquet, self.r2_key_fact_progress_parquet()),
         ]
 
         uploaded_count = 0
@@ -883,9 +893,14 @@ def main():
         print("✗ Set MANGAUPDATES_USERNAME and MANGAUPDATES_PASSWORD in .env file")
         return "failed"
 
-    dw = MangaUpdatesDataWarehouse(
-        username, password, require_r2_pull=args.require_r2_pull
-    )
+    try:
+        dw = MangaUpdatesDataWarehouse(
+            username, password, require_r2_pull=args.require_r2_pull
+        )
+    except ValueError as e:
+        print(f"✗ {e}")
+        return "failed"
+
     dw.full_image_refresh = args.full_image_refresh
 
     if args.dump_sample is not None:
@@ -913,7 +928,7 @@ if __name__ == "__main__":
             pass
         elif result == "failed":
             send_discord_alert(
-                f"❌ MangaUpdate Script failed at <t:{timestamp}:f> (auth, R2 baseline pull, or processing)."
+                f"❌ MangaUpdate Script failed at <t:{timestamp}:f> (required .env/CI vars, auth, R2 pull, or processing)."
             )
             exit_code = 1
         else:
