@@ -1,0 +1,67 @@
+name: Fetch MangaUpdate Data
+
+on:
+  schedule:
+    - cron: '45 5 * * *'    # 05:45 UTC 
+    - cron: '0 3 * * *'     # 03:00 UTC 
+    - cron: '30 13 * * *'   # 13:30 UTC 
+    - cron: '30 16 * * *'   # 16:30 UTC 
+    - cron: '45 18 * * *'   # 18:45 UTC 
+    - cron: '20 21 * * *'   # 21:20 UTC 
+    - cron: '45 23 * * *'   # 23:45 UTC 
+    - cron: '15 1 * * *'    # 01:15 UTC 
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Cache pip
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        pip install --upgrade pip  # Ensures latest pip
+        pip install -r requirements.txt  # Your deps
+
+    - name: Install system deps  # For spotipy/requests robustness
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y jq curl  # Optional: jq for JSON in logs
+        
+    - name: Run Spotify fetch script
+      env:
+        DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        DISCORD_USER_ID: ${{ secrets.DISCORD_USER_ID }}
+        R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        MANGAUPDATES_PASSWORD: ${{ secrets.MANGAUPDATES_PASSWORD }}
+        MANGAUPDATES_USERNAME: ${{ secrets.MANGAUPDATES_USERNAME }}
+        MANGAUPDATES_API_BASE_URL: ${{ vars.MANGAUPDATES_API_BASE_URL }}
+        DIM_SERIES_CSV_PATH: ${{ vars.DIM_SERIES_CSV_PATH }}
+        FACT_PROGRESS_CSV_PATH: ${{ vars.FACT_PROGRESS_CSV_PATH }}
+        DIM_SERIES_PARQUET_PATH: ${{ vars.DIM_SERIES_PARQUET_PATH }}
+        FACT_PROGRESS_PARQUET_PATH: ${{ vars.FACT_PROGRESS_PARQUET_PATH }}
+        SERIES_API_SAMPLE_PATH: ${{ vars.SERIES_API_SAMPLE_PATH }}
+      run: python mangaupdate_warehouse.py  # script name
+
+    - name: Error notification
+      if: failure()
+      uses: actions/github-script@v7
+      with:
+        script: console.log('Workflow failed - check logs');
