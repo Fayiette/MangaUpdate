@@ -286,7 +286,7 @@ class MangaUpdatesDataWarehouse:
             with open(file_path, "rb") as f:
                 self.s3_client.upload_fileobj(f, R2_BUCKET, object_name)
 
-            print(f"✓ Uploaded {object_name} to R2")
+            print("✓ Uploaded to R2")
             return True
 
         except Exception as e:
